@@ -34,7 +34,7 @@ def search_address(address):
 
 
 # API
-url = "http://127.0.0.1:8000/predict"
+url = "https://taxifare-api-473520241787.europe-west1.run.app/predict"
 
 
 # Interface
