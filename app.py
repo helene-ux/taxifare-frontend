@@ -34,8 +34,7 @@ def search_address(address):
 
 
 # API
-url = "https://taxifare-api-473520241787.europe-west1.run.app/predict"
-
+URL = st.secrets['API_URL']
 
 # Interface
 st.title("🚕 TaxiFare")
@@ -111,7 +110,7 @@ if st.button("Calculate my fare", type="primary", use_container_width=True):
             "passenger_count": passenger_count
         }
 
-        response = requests.get(url, params=params)
+        response = requests.get(URL, params=params)
         prediction = response.json()["fare"]
 
     st.divider()
