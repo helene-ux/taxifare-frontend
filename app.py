@@ -30,7 +30,7 @@ def search_address(searchterm):
 
 geolocator = Photon(user_agent="taxifare-frontend")
 
-url = "http://127.0.0.1:8000" + "/predict"
+url = "https://taxifare-api-473520241787.europe-west1.run.app" + "/predict"
 
 st.title("🚕 TaxiFare")
 st.write("Estimate the price of your taxi ride in New York.")
