@@ -1,41 +1,46 @@
 import streamlit as st
 import requests
-from geopy.geocoders import Photon
-from streamlit_searchbox import st_searchbox
+from geopy.geocoders import Nominatim
+from geopy.extra.rate_limiter import RateLimiter
+from geopy.exc import GeocoderServiceError
 from datetime import datetime
 from zoneinfo import ZoneInfo
 import folium
 from streamlit_folium import st_folium
 
-@st.cache_data(ttl=3600)
-def search_address(searchterm):
 
-    if len(searchterm.strip()) < 3:
-        return []
-
-    locations = geolocator.geocode(
-        searchterm + ", New York, USA",
-        exactly_one=False,
-        limit=5,
-        bbox=[(40.49, -74.27), (40.92, -73.68)]
+# Geocoding
+@st.cache_resource
+def get_geocoder():
+    geolocator = Nominatim(user_agent="taxifare-frontend")
+    return RateLimiter(
+        geolocator.geocode,
+        min_delay_seconds=1,
+        max_retries=0,
+        swallow_exceptions=False
     )
 
-    if not locations:
-        return []
 
-    return [
-        (location.address, location)
-        for location in locations
-    ]
+@st.cache_data(ttl=3600)
+def search_address(address):
+    geocode = get_geocoder()
 
-geolocator = Photon(user_agent="taxifare-frontend")
+    return geocode(
+        address.strip() + ", New York, USA",
+        viewbox=[(40.49, -74.27), (40.92, -73.68)],
+        bounded=True,
+        timeout=10
+    )
 
-url = "https://taxifare-api-473520241787.europe-west1.run.app" + "/predict"
 
+# API
+url = "http://127.0.0.1:8000/predict"
+
+
+# Interface
 st.title("🚕 TaxiFare")
 st.write("Estimate the price of your taxi ride in New York.")
 
-#pickup_datetime = st.selectbox("Select your datetime", ["2013-10-23 17:00:00 UTC", "2013-10-23 17:30:00 UTC"])
 col1, col2 = st.columns(2)
 
 with col1:
@@ -44,6 +49,8 @@ with col1:
 with col2:
     pickup_time = st.time_input("Pick-up time")
 
+
+# Datetime conversion
 pickup_datetime = datetime.combine(pickup_date, pickup_time)
 
 pickup_datetime = pickup_datetime.replace(
@@ -54,26 +61,43 @@ pickup_datetime = pickup_datetime.astimezone(ZoneInfo("UTC"))
 
 pickup_datetime = pickup_datetime.strftime("%Y-%m-%d %H:%M:%S UTC")
 
-pickup_location = st_searchbox(
-    search_address,
-    placeholder="Search for a pick-up address",
-    label="Pick-up address",
-    key="pickup"
+
+# Addresses
+pickup_address = st.text_input(
+    "Pick-up address",
+    placeholder="Times Square"
 )
 
-dropoff_location = st_searchbox(
-    search_address,
-    placeholder="Search for a drop-off address",
-    label="Drop-off address",
-    key="dropoff"
+dropoff_address = st.text_input(
+    "Drop-off address",
+    placeholder="Central Park"
 )
 
-passenger_count = st.selectbox("Number of passengers", [1, 2, 3, 4])
+passenger_count = st.selectbox(
+    "Number of passengers",
+    [1, 2, 3, 4]
+)
 
+
+# Fare prediction
 if st.button("Calculate my fare", type="primary", use_container_width=True):
 
+    if not pickup_address.strip() or not dropoff_address.strip():
+        st.warning("Please enter both addresses.")
+        st.stop()
+
+    with st.spinner("Locating addresses..."):
+
+        try:
+            pickup_location = search_address(pickup_address)
+            dropoff_location = search_address(dropoff_address)
+
+        except GeocoderServiceError:
+            st.error("The geocoding service is unavailable. Please try again later.")
+            st.stop()
+
     if pickup_location is None or dropoff_location is None:
-        st.warning("Please select both addresses.")
+        st.warning("One or both addresses could not be found.")
         st.stop()
 
     with st.spinner("Calculating..."):
@@ -93,6 +117,8 @@ if st.button("Calculate my fare", type="primary", use_container_width=True):
     st.divider()
     st.success(f"Your estimated fare is ${prediction:.2f}!")
 
+
+    # Map
     taxi_map = folium.Map(
         location=[pickup_location.latitude, pickup_location.longitude],
         zoom_start=13
@@ -112,6 +138,8 @@ if st.button("Calculate my fare", type="primary", use_container_width=True):
         icon=folium.Icon(color="red")
     ).add_to(taxi_map)
 
+
+    # Route
     routing_url = (
         "https://router.project-osrm.org/route/v1/driving/"
         f"{pickup_location.longitude},{pickup_location.latitude};"
@@ -127,6 +155,7 @@ if st.button("Calculate my fare", type="primary", use_container_width=True):
     route_data = route_response.json()
 
     if route_data.get("code") == "Ok":
+
         coordinates = route_data["routes"][0]["geometry"]["coordinates"]
 
         route_points = [(lat, lon) for lon, lat in coordinates]
@@ -143,4 +172,9 @@ if st.button("Calculate my fare", type="primary", use_container_width=True):
         [dropoff_location.latitude, dropoff_location.longitude]
     ])
 
-    st_folium(taxi_map, width=700, height=450, returned_objects=[])
+    st_folium(
+        taxi_map,
+        width=700,
+        height=450,
+        returned_objects=[]
+    )
